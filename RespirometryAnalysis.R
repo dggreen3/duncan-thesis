@@ -3,7 +3,8 @@
 # Duncan Green
 
 # Script calls on excel file "Respirometry Trials.xlsx"
-setwd("~/Dropbox/Respirometry Data") #set working dir.
+# setwd("~/Dropbox/Respirometry Data") # former working directory. 
+setwd("/Users/duncangreen/Documents/GreenThesis") # current working directory
 library(readxl)
 library(ggplot2)
 library(extrafont)
@@ -11,9 +12,12 @@ library(dplyr)
 library(data.table)
 library(tidyr)
 library(nlstools)
+library(reshape2)
+library(stringr)
 # loadfonts()
 
-# To skip all the processing steps and just retrieve oxygen consumption data, skip to ~ line 238
+# IMPORTANT: To skip all the processing steps (i.e., clicking lots of points) and just retrieve oxygen 
+#  consumption data, skip to ~ line 300
 
 Resp.dat <- read_xlsx("Respirometry Trials.xlsx",1)  # Raw data from trials
 Resp.meta <- read_xlsx("Respirometry Trials.xlsx",3) # Metadata from static trials
@@ -290,18 +294,21 @@ ggplot(Resp.meta, aes(as.factor(FishID),Cor.ggd1, col=as.factor(TempC))) + geom_
 
 # Subset of only values for fish (no tests or BG trials)
 fishsub <- Resp.meta[Resp.meta$Background !=0,]
-badfish <- c("S2","S6","S12","S15","S15 T2","S15 T3","S16",
-  "S25","S25 T2","S26","S26 T2", "S27","S31") # trials flagged in data (erratic swimming, air in chamber, etc.)
+badfish <- c("S2","S6","S8 T2","S12","S15","S15 T2","S15 T3","S16",
+  "S25","S25 T2","S26","S26 T2", "S27","S28 T2","S31") # trials flagged in data (erratic swimming, air in chamber, etc.)
 
 # Save below as a different number (fish3sub, fish4sub, etc.) if above analyses were redone
-fish3sub <- fishsub[!fishsub$FishID %in% badfish,] #remove bad trials
+fish3sub <- fish3sub[!fish3sub$FishID %in% badfish,] #remove bad trials
 fish3sub 
 
 #Again, change below number!
 write.csv(fish3sub, "Fish3sub.csv") # Save data externally 
 
-# fish2sub <- read.csv("fish2sub.csv",1)     # Retrieve .csv if necessary
-# fish2sub <- fish2sub[!fish2sub$FishID %in% badfish,] # double check that bad trials are removed
+# fish3sub <- read.csv("fish3sub.csv",1)     # Retrieve .csv if necessary
+# fish3sub <- fish3sub[!fish3sub$FishID %in% badfish,] # double check that bad trials are removed
+
+# IF there is a first column 'X,' remove it:
+# fish3sub <- fish3sub[,-1]
 
 ggplot(fish3sub, aes(as.factor(FishID),Cor.ggd1, col=as.factor(TempC))) + geom_point() + 
   labs(title="mO2",xlab="Fish ID",ylab="mO2 (g/g/day)") +
@@ -371,7 +378,20 @@ plot(Cor.ggd ~ FishWeight, data = longfish)
 
 longfish <- longfish[!is.na(longfish$Cor.ggd),]
 
-longfish2 <- longfish[,-1] # Trying to get nlstools to work (need finite xlim)
+# longfish2 <- longfish[,-1] # Trying to get nlstools to work (need finite xlim)
+
+RespDatP <- fish3sub[,-c(3,4,6:22,28:30)]
+RespDatP <- melt(data = RespDatP, id.vars = c("FishID","FishWeight","TempC")) #melt fn from library "reshape2"
+colnames(RespDatP)[c(2,4:5)] <- c("FishWeight.g","Period","MO2.corrected") #renaming variables to Period and MO2 (oxygen consumption rate)
+RespDatP$Period <- as.character(RespDatP$Period)
+RespDatP$Period[RespDatP$Period == "Cor.ggd"] <- "Mean"
+RespDatP$Period[RespDatP$Period == "Cor.ggd1"] <- "1"
+RespDatP$Period[RespDatP$Period == "Cor.ggd2"] <- "2"
+RespDatP$Period[RespDatP$Period == "Cor.ggd3"] <- "3"
+RespDatP$Period[RespDatP$Period == "Cor.ggd4"] <- "4"
+RespDatP$Period <- as.factor(RespDatP$Period)
+
+save(fish3sub, RespDatP, file = "RespDataProcessed.RData") # saving objects to use in parameterization script
 
 f1 <- as.formula(Cor.ggd~RA*FishWeight^(RB)*exp(RQ*TempC))
 preview(f1, data = longfish2, start = list(RA = 0.025, RB = -0.9, RQ= 0.05)) #requires package 'nlstools'
@@ -383,11 +403,15 @@ preview(f1, data = longfish2, start = list(RA = coefficients(fit2)[1],
 
 # Fitting allometric function. Baseplot
 
-plot(Cor.ggd ~ FishWeight, data = fish2sub) # all points (all temps)
-lmlog <- lm(log(Cor.ggd) ~ log(FishWeight),data = fish2sub) #linear model of log-transformed data
+plot(Cor.ggd ~ FishWeight, data = fish3sub) # all points (all temps)
+lmlog <- lm(log(Cor.ggd) ~ log(FishWeight),data = fish3sub) #linear model of log-transformed data
 summary(lmlog)
 curve(exp(lmlog$coefficients[1])*x^(lmlog$coefficients[2]),add = TRUE,col=1) # coefficients [1] and [2] are 
 # intercept and slope, respectively. This backtransforms linear coefs into our allometric (y~ax^b) form
+
+sub5C <- fish3sub[fish3sub$TempC==5,] #5C trials only
+sub10C <- fish3sub[fish3sub$TempC==10,] #10C trials only
+sub15C <- fish3sub[fish3sub$TempC==15,] #15C trials only
 
 lmlog5 <- lm(log(Cor.ggd) ~ log(FishWeight),data = sub5C) # 5C trials
 summary(lmlog5)
@@ -406,27 +430,27 @@ points(Cor.ggd ~ FishWeight, data = sub15C, col=2)
 
 # Metabolic rate as a function of temperature
 par(mfrow=c(2,2))
-plot(Cor.ggd ~ TempC, data = fish2sub, xlim=c(0,15),ylim=c(-0.003,0.010),main="linear") # all points
-lmtemp <- lm(Cor.ggd ~ TempC, data = fish2sub)
+plot(Cor.ggd ~ TempC, data = fish3sub, xlim=c(0,15),ylim=c(-0.003,0.010),main="linear") # all points
+lmtemp <- lm(Cor.ggd ~ TempC, data = fish3sub)
 summary(lmtemp)
 abline(h=0,lty=2)
 
-lmlogtemp <- lm(log(Cor.ggd) ~ TempC, data = fish2sub) # log-linear relationship
+lmlogtemp <- lm(log(Cor.ggd) ~ TempC, data = fish3sub) # log-linear relationship
 summary(lmlogtemp)
-plot(log(Cor.ggd) ~ TempC, data = fish2sub,xlim=c(0,15),main = "log-linear")
+plot(log(Cor.ggd) ~ TempC, data = fish3sub,xlim=c(0,15),main = "log-linear")
 abline(lmlogtemp)
 
 
-lmloglogtemp <- lm(log(Cor.ggd) ~ log(TempC),data = fish2sub) #log-log
+lmloglogtemp <- lm(log(Cor.ggd) ~ log(TempC),data = fish3sub) #log-log
 summary(lmloglogtemp)
-plot(log(Cor.ggd) ~ log(TempC),data = fish2sub, main="log-log",xlim=c(0,log(15)))
+plot(log(Cor.ggd) ~ log(TempC),data = fish3sub, main="log-log",xlim=c(0,log(15)))
 abline(lmloglogtemp)
 
-fish2sub$TempK <- fish2sub$TempC + 273.15 #Temp Kelvin
-fish2sub$invTempK <- 1000/fish2sub$TempK  # Inverse temp in Kelvin, x1000
-lmArrtemp <- lm(log(Cor.ggd) ~ invTempK,data = fish2sub) #Arrhenius
+fish3sub$TempK <- fish3sub$TempC + 273.15 #Temp Kelvin
+fish3sub$invTempK <- 1000/fish3sub$TempK  # Inverse temp in Kelvin, x1000
+lmArrtemp <- lm(log(Cor.ggd) ~ invTempK,data = fish3sub) #Arrhenius
 summary(lmArrtemp)
-plot(log(Cor.ggd) ~ invTempK,data = fish2sub ,main= "Arrhenius",xlim=c(3.46,3.66))
+plot(log(Cor.ggd) ~ invTempK,data = fish3sub ,main= "Arrhenius",xlim=c(3.46,3.66))
 abline(lmArrtemp)
 # Export pdf of plot here
 
@@ -434,12 +458,12 @@ abline(lmArrtemp)
 
 # Fit RQ parameter using RA and RB parameters from Generalized Coregonid (GC) model
 f0 <- Cor.ggd ~ 0.0018*FishWeight^(-0.12)*exp(RQ*TempC)
-fit.gc <- nls(f0, data = fish2sub, start = list(RQ= 0.047))
+fit.gc <- nls(f0, data = fish3sub, start = list(RQ= 0.047))
 summary(fit.gc)
 RQ.gc <- coefficients(fit.gc)[1]
 
 
-plot(Cor.ggd ~ FishWeight, data = fish2sub)
+plot(Cor.ggd ~ FishWeight, data = fish3sub)
 points(Cor.ggd ~ FishWeight, data = sub5C, col=1) 
 points(Cor.ggd ~ FishWeight, data = sub10C, col=3)
 points(Cor.ggd ~ FishWeight, data = sub15C, col=2)
@@ -449,7 +473,7 @@ curve(0.0018*x^(-0.12)*exp(RQ.gc*15),add = TRUE,lty=3, col=2)
 
 # Madenjian (mj) et al. 2006 RA value
 f0 <- Cor.ggd ~ 0.00085*FishWeight^(-0.12)*exp(RQ*TempC)
-fit.mj <- nls(f0, data = fish2sub, start = list(RQ= 0.047))
+fit.mj <- nls(f0, data = fish3sub, start = list(RQ= 0.047))
 summary(fit.mj)
 RQ.mj <- coefficients(fit.mj)[1]
 
@@ -459,7 +483,7 @@ curve(0.00085*x^(-0.12)*exp(RQ.mj*15),add = TRUE,lty=1, col=2)
 
 # Fitting all three parameters to my data. Note insignificance of Weight coefficients (not enough range in fish sizes).
 f0 <- Cor.ggd ~ RA*FishWeight^(RB)*exp(RQ*TempC);
-fit2 <- nls(f0, data = fish2sub, start = list(RA = 0.001, RB = -0.01, RQ= 0.01))
+fit2 <- nls(f0, data = fish3sub, start = list(RA = 0.001, RB = -0.01, RQ= 0.01))
 summary(fit2)
 curve(coefficients(fit2)[1]*x^(coefficients(fit2)[2])*exp(coefficients(fit2)[3]*15),add = TRUE,lty=2, col=2)
 curve(coefficients(fit2)[1]*x^(coefficients(fit2)[2])*exp(coefficients(fit2)[3]*10),add = TRUE,lty=2, col=3)
@@ -640,10 +664,10 @@ p1 + facet_wrap(~FishID)
 
 # Obtain oxygen consumption rates for each trial
 # ! Come back to this
-MO2 Values<- matrix() # Output matrix
+MO2Values <- matrix() # Output matrix
 
 (allID <- unique(Resp.dat$FishID)) # save a list of all fish ID and background ID
-for i in (1:length(allID)) {
+for (i in 1:length(allID)) {
   ID <- allID[i]
   IDsub <- Resp.dat[Resp.dat$FishID==ID, ]
   fitsub <- lm(IDsub$DOavg ~ IDsub$ElapsedTime)
