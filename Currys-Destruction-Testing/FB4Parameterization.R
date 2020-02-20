@@ -15,6 +15,26 @@ library(nlstools)
 load("RespDataProcessed.RData") # Processed respirometry data: same data in two forms, one tidy/long (RespDatR) and one wide (Fish3sub)
 # NOTE: For raw data processing details, see 'RespirometryAnalysis.R', which calls on "Respirometry Trials.xlsx" and contains all processing steps. 
 
+# Respiration data - individual fish
+#   3-4 trial period
+#   Fish was acclimated to temp, fasted for 2 days, held in respirometer.
+# Low flow 
+# M02.corrected - corrected consumption in grams O2/gram of fish/day
+#   Corrected for background respiration (take measurement period with fish in chaimber before/after each trial, average those two and subtract from O2 consumption when fish in trial)
+
+# For Period
+#   Mean is mean of the other 4
+
+# Study design
+#   Fish ID only had one trial total
+#     10 fish per temp treatment
+
+head(RespDatP)
+dim(RespDatP)
+
+unique(RespDatP$Period)
+
+
 plot(MO2.corrected ~ FishWeight.g, data = RespDatP[RespDatP$Period!="Mean",]) # All measurements from respirometry trials at all three 
 # temperatures (5,10,15C). Generally, each trial/fish had three measurement periods, from which I took the mean MO2 (oxygen consumption rate):
 
@@ -36,6 +56,9 @@ ggplot(MeanResp, aes(FishWeight.g, MO2.corrected, col=as.factor(TempC),pch=as.fa
 # the sense that I have subtracted background levels of bacterial oxygen consumption. 
 
 # Fit temperature (RQ) parameter only using weight (RA and RB) parameters from Generalized Coregonid (GC) model from Rudstam et al. 1994. 
+
+# CURRY: RA and RB are input parameters
+
 f0 <- Cor.ggd ~ 0.0018*FishWeight^(-0.12)*exp(RQ*TempC) 
 fit.gc <- nls(f0, data = fish3sub, start = list(RQ= 0.047))
 summary(fit.gc)
@@ -73,5 +96,24 @@ curve(coefficients(fit2)[1]*x^(coefficients(fit2)[2])*exp(coefficients(fit2)[3]*
 
 # To sum up my issue again now that you've seen some data, I am trying to determine the 'best' way to parameterize these RA and RB coefficients
 # despite having almost no variation in fish weights in my experimental data.
+
+# CURRY: Non-linear version
+require(lme4)
+
+head(RespDatP)
+unique(RespDatP$Period)
+# Create raw observations of Resp, no summary means
+RespDatP.obs <- RespDatP[RespDatP$Period!="Mean",]
+
+me <- nlmer( MO2.corrected ~ 0.0018*FishWeight.g^(-0.12)*exp(RQ*TempC) ~ RQ|FishID, data=RespDatP, start=list(RQ=0.1))
+
+
+f0 <- MO2.corrected ~ 0.0018*FishWeight.g^(-0.12)*exp(RQ*TempC) 
+me <- nlmer( f0 ~ RQ|FishID, data=RespDatP, start=list(RQ=0.1))
+
+
+resp.fxn <- function
+
+
 
 
